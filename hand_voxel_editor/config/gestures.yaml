@@ -1,0 +1,5 @@
+# Gesture → action mapping
+gestures:
+  pinch: "draw"
+  fist: "grab"
+  open_palm: "hover"
