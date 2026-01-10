@@ -1,6 +1,7 @@
 import cv2
 from vision.camera import Camera
 from vision.hand_tracker import HandTracker
+from gestures import GestureRecognizer, GestureStateMachine
 import time
 import numpy as np
 
@@ -36,6 +37,10 @@ def draw_hand(frame, landmarks):
 def main():
     cam = Camera()
     tracker = HandTracker()
+    
+    # Gesture recognition setup
+    recognizer = GestureRecognizer()
+    state_machines = [GestureStateMachine(stability_frames=2) for _ in range(2)]
 
     window_name = "Ultron Workstation"
     cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
@@ -50,9 +55,26 @@ def main():
 
         all_landmarks, _ = tracker.process(frame)
 
+        gestures = []
+        
         if all_landmarks:
-            for landmarks in all_landmarks:
+            # Draw hands and recognize gestures
+            for i, landmarks in enumerate(all_landmarks):
                 draw_hand(frame, landmarks)
+                
+                # Recognize gesture
+                gesture = recognizer.recognize_single_hand(landmarks)
+                
+                # Apply state machine for stability
+                if i < len(state_machines):
+                    stable_gesture = state_machines[i].update(gesture)
+                    gestures.append(stable_gesture)
+            
+            # Check for two-hand gestures
+            if len(all_landmarks) == 2:
+                two_hand = recognizer.recognize_two_hands(all_landmarks[0], all_landmarks[1])
+                if two_hand:
+                    gestures = [two_hand, two_hand]  # Override with two-hand gesture
 
         # FPS counter
         curr_time = time.time()
@@ -61,6 +83,11 @@ def main():
 
         cv2.putText(frame, f"FPS: {fps}", (20, 60),
                     cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+
+        # Display gestures
+        gesture_text = " | ".join([f"Hand {i+1}: {g}" for i, g in enumerate(gestures)]) if gestures else "No hands detected"
+        cv2.putText(frame, gesture_text, (20, 120),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 0), 2, cv2.LINE_AA)
 
         # Antigravity Prompt (mental anchor)
         cv2.putText(frame, ANTIGRAVITY_PROMPT, (20, frame.shape[0] - 20),
