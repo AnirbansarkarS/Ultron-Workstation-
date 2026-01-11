@@ -1,9 +1,13 @@
 """
-Deterministic gesture recognizer.
-Pure logic - no ML.
+Deterministic Gesture Engine
+Human-stable, XR-style logic
+No ML. No magic.
 """
+
+import time
+
 from gestures.finger_state import (
-    get_finger_states, 
+    get_finger_states,
     count_extended_fingers,
     distance_3d,
     THUMB_TIP,
@@ -13,88 +17,171 @@ from gestures.finger_state import (
     PINKY_TIP
 )
 
+
 class GestureRecognizer:
-    """Deterministic gesture recognition using geometric rules."""
-    
     def __init__(self):
-        self.pinch_threshold = 0.05  # Normalized distance for pinch
-    
-    def detect_open_palm(self, landmarks):
-        """All 5 fingers extended."""
-        extended = count_extended_fingers(landmarks)
-        return extended >= 4  # Allow 4 or 5 for robustness
-    
-    def detect_fist(self, landmarks):
-        """All fingers closed."""
-        extended = count_extended_fingers(landmarks)
-        return extended <= 1  # Allow thumb to be slightly open
-    
-    def detect_pinch(self, landmarks):
-        """Thumb and index tips are close together."""
-        thumb_tip = landmarks[THUMB_TIP]
-        index_tip = landmarks[INDEX_TIP]
-        
-        dist = distance_3d(thumb_tip, index_tip)
-        return dist < self.pinch_threshold
-    
-    def detect_index_point(self, landmarks):
-        """Only index finger extended."""
-        states = get_finger_states(landmarks)
-        
-        # Index must be extended
-        if not states['INDEX']:
+        # Thresholds
+        self.pinch_threshold = 0.045
+        self.hold_time = 0.35  # seconds
+
+        # State memory for HOLD gestures
+        self.last_gesture = None
+        self.gesture_start_time = 0.0
+
+    # -------------------------------------------------
+    # CORE HOLD LOGIC
+    # -------------------------------------------------
+
+    def _is_held(self, gesture_name):
+        now = time.time()
+
+        if gesture_name != self.last_gesture:
+            self.last_gesture = gesture_name
+            self.gesture_start_time = now
             return False
-        
-        # Other fingers should be closed
-        others_closed = (
-            not states['MIDDLE'] and 
-            not states['RING'] and 
-            not states['PINKY']
+
+        return (now - self.gesture_start_time) >= self.hold_time
+
+    # -------------------------------------------------
+    # BASIC DETECTORS
+    # -------------------------------------------------
+
+    def detect_open_palm(self, landmarks):
+        return count_extended_fingers(landmarks) >= 4
+
+    def detect_fist(self, landmarks):
+        return count_extended_fingers(landmarks) <= 1
+
+    def detect_pinch(self, landmarks):
+        d = distance_3d(landmarks[THUMB_TIP], landmarks[INDEX_TIP])
+        return d < self.pinch_threshold
+
+    # -------------------------------------------------
+    # 🔑 FIXED INDEX POINTING (DOMINANCE-BASED)
+    # -------------------------------------------------
+
+    def detect_index_point(self, landmarks):
+        s = get_finger_states(landmarks)
+
+        # Index MUST be extended
+        if not s["INDEX"]:
+            return False
+
+        # Other fingers must NOT dominate
+        noise_count = sum([
+            s["MIDDLE"],
+            s["RING"],
+            s["PINKY"]
+        ])
+
+        # Allow one noisy finger (human realistic)
+        return noise_count <= 1
+
+    # -------------------------------------------------
+    # ADVANCED POSES
+    # -------------------------------------------------
+
+    def detect_three_finger(self, landmarks):
+        s = get_finger_states(landmarks)
+        return (
+            s["INDEX"] and
+            s["MIDDLE"] and
+            s["RING"] and
+            not s["PINKY"]
         )
-        
-        return others_closed
+
+    def detect_four_finger(self, landmarks):
+        s = get_finger_states(landmarks)
+        return (
+            s["INDEX"] and
+            s["MIDDLE"] and
+            s["RING"] and
+            s["PINKY"]
+        )
+
+    def detect_precision_mode(self, landmarks):
+        """Also called 'pointer' or 'gun' gesture - thumb + index extended."""
+        s = get_finger_states(landmarks)
+        return (
+            s["THUMB"] and
+            s["INDEX"] and
+            not s["MIDDLE"] and
+            not s["RING"] and
+            not s["PINKY"]
+        )
     
+    def detect_pointer(self, landmarks):
+        """Alias for precision_mode - thumb + index up (gun gesture)."""
+        return self.detect_precision_mode(landmarks)
+
+    # -------------------------------------------------
+    # HOLD GESTURES
+    # -------------------------------------------------
+
+    def detect_pinch_hold(self, landmarks):
+        if not self.detect_pinch(landmarks):
+            return False
+        return self._is_held("PINCH")
+
+    def detect_fist_hold(self, landmarks):
+        if not self.detect_fist(landmarks):
+            return False
+        return self._is_held("FIST")
+
+    # -------------------------------------------------
+    # SINGLE HAND GESTURE OS (PRIORITY FIXED)
+    # -------------------------------------------------
+
     def recognize_single_hand(self, landmarks):
-        """
-        Recognize gesture from single hand landmarks.
-        Priority order prevents conflicts.
-        
-        Returns:
-            str: Gesture name
-        """
         if landmarks is None or len(landmarks) < 21:
             return "NONE"
-        
-        # Priority order (most specific first)
-        if self.detect_pinch(landmarks):
-            return "PINCH"
-        
+
+        # -------- HOLD (highest priority) --------
+        if self.detect_pinch_hold(landmarks):
+            return "GRAB_DRAG"
+
+        if self.detect_fist_hold(landmarks):
+            return "ERASE_CONTINUOUS"
+
+        # -------- DRAW (POINTER GESTURE - thumb + index) --------
+        if self.detect_pointer(landmarks):
+            return "pointer"  # For voxel drawing
+
+        # -------- LEGACY index point (lower priority) --------
         if self.detect_index_point(landmarks):
-            return "INDEX_POINT"
-        
+            return "index_point"
+
+        # -------- CAMERA CONTROL --------
+        if self.detect_three_finger(landmarks):
+            return "MOVE_CAMERA"
+
+        if self.detect_four_finger(landmarks):
+            return "ROTATE_CAMERA"
+
+        # -------- MODE / ACTION --------
+        if self.detect_pinch(landmarks):
+            return "pinch"  # For erasing
+
         if self.detect_fist(landmarks):
-            return "FIST"
-        
+            return "fist"  # For hold mode
+
         if self.detect_open_palm(landmarks):
-            return "OPEN_PALM"
-        
+            return "open_palm"  # For rotation
+
         return "UNKNOWN"
-    
-    def recognize_two_hands(self, landmarks_left, landmarks_right):
-        """
-        Recognize two-hand gestures.
-        
-        Returns:
-            str: Gesture name or None if no two-hand gesture detected
-        """
-        if landmarks_left is None or landmarks_right is None:
+
+    # -------------------------------------------------
+    # TWO HAND GESTURES
+    # -------------------------------------------------
+
+    def recognize_two_hands(self, left, right):
+        if left is None or right is None:
             return None
-        
-        # Both hands open and spread
-        left_open = self.detect_open_palm(landmarks_left)
-        right_open = self.detect_open_palm(landmarks_right)
-        
-        if left_open and right_open:
-            return "TWO_HAND_SPREAD"
-        
+
+        if self.detect_open_palm(left) and self.detect_open_palm(right):
+            return "ZOOM"
+
+        if self.detect_pinch(left) and self.detect_pinch(right):
+            return "SCALE_OBJECT"
+
         return None
