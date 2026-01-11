@@ -2,6 +2,7 @@
 Interactive voxel editing with hand gestures.
 """
 import numpy as np
+import time
 
 class VoxelEditor:
     def __init__(self, voxel_grid, camera):
@@ -20,8 +21,13 @@ class VoxelEditor:
         
         # Placement control (prevent spam)
         self.last_placed_pos = None
-        self.placement_cooldown = 0.2  # seconds between placements
+        self.placement_cooldown = 0.3  # seconds between placements
         self.last_placement_time = 0.0
+        
+        # Erase control (prevent spam)
+        self.last_erased_pos = None
+        self.erase_cooldown = 0.2
+        self.last_erase_time = 0.0
         
         # Color palette for drawing
         self.colors = [
@@ -37,8 +43,12 @@ class VoxelEditor:
         self.current_color_index = 0
         
         # Rotation control
-        self.rotation_base = None  # (hand_x, hand_y) at rotation start
-        self.rotation_start = (0, 0, 0)  # Camera rotation at start
+        self.rotation_base = None
+        self.rotation_start = (0, 0, 0)
+        
+        # Color cycle control
+        self.last_color_cycle_time = 0.0
+        self.color_cycle_cooldown = 0.5
     
     def hand_to_world(self, hand_x, hand_y, hand_z, screen_width, screen_height):
         """
@@ -76,11 +86,11 @@ class VoxelEditor:
         Args:
             gesture: Gesture name (e.g., "pointer", "pinch", "open_palm")
         """
-        if gesture == "pointer":  # Thumb + index up (gun gesture)
+        if gesture == "pointer":  # Thumb + index up (gun gesture) - FAR APART
             self.mode = "DRAW"
         elif gesture == "index_point":  # Fallback legacy gesture
             self.mode = "DRAW"
-        elif gesture == "pinch":
+        elif gesture == "pinch":  # Thumb + index CLOSE together
             self.mode = "ERASE"
         elif gesture == "open_palm":
             self.mode = "ROTATE"
@@ -99,10 +109,9 @@ class VoxelEditor:
         Returns:
             True if placed, False if failed
         """
-        import time
+        now = time.time()
         
         # Check cooldown timer
-        now = time.time()
         if now - self.last_placement_time < self.placement_cooldown:
             return False
         
@@ -112,7 +121,6 @@ class VoxelEditor:
         
         # Check voxel limit
         if self.voxel_grid.count() >= self.max_voxels:
-            print(f"Voxel limit reached: {self.max_voxels}")
             return False
         
         # Check if voxel already exists
@@ -127,7 +135,6 @@ class VoxelEditor:
         self.last_placed_pos = position
         self.last_placement_time = now
         
-        print(f"✓ Voxel placed at {position}, color {color}")
         return True
     
     def erase_voxel(self, position):
@@ -140,11 +147,26 @@ class VoxelEditor:
         Returns:
             True if erased, False if no voxel there
         """
-        from world.voxel_ops import remove_voxel
+        now = time.time()
         
+        # Check cooldown
+        if now - self.last_erase_time < self.erase_cooldown:
+            return False
+        
+        # Check if same position as last erase
+        if position == self.last_erased_pos:
+            return False
+        
+        # Erase voxel
         if self.voxel_grid.get_voxel(position) is not None:
-            remove_voxel(self.voxel_grid, position)
+            if position in self.voxel_grid.grid:
+                del self.voxel_grid.grid[position]
+            
+            # Update tracking
+            self.last_erased_pos = position
+            self.last_erase_time = now
             return True
+        
         return False
     
     def find_nearest_voxel(self, position, max_distance=2):
@@ -174,7 +196,14 @@ class VoxelEditor:
     
     def cycle_color(self):
         """Cycle to next color in palette."""
+        now = time.time()
+        
+        # Check cooldown
+        if now - self.last_color_cycle_time < self.color_cycle_cooldown:
+            return
+        
         self.current_color_index = (self.current_color_index + 1) % len(self.colors)
+        self.last_color_cycle_time = now
     
     def get_current_color(self):
         """Get current drawing color."""
