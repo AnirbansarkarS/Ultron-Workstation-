@@ -75,7 +75,8 @@ def main():
     state_machines = [GestureStateMachine(stability_frames=2) for _ in range(2)]
 
     # 3D World Setup - STABLE CAMERA
-    camera_3d = Camera3D(position=(0, 0, -15), rotation=(0, 0, 0), fov=60)
+    # Position at +15 Z looking at origin (0,0,0) so objects are in front
+    camera_3d = Camera3D(position=(0, 0, 15), rotation=(0, 0, 0), fov=60)
     
     voxel_grid = VoxelGrid(create_sample=True)
     voxel_editor = VoxelEditor(voxel_grid, camera_3d)
