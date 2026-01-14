@@ -65,7 +65,36 @@ def draw_3d_cursor(frame, cursor_pos, camera_3d, w, h, color=(0, 255, 255), size
                 if v1 is not None and v2 is not None:
                     pt1 = (int(v1[0]), int(v1[1]))
                     pt2 = (int(v2[0]), int(v2[1]))
+                    pt2 = (int(v2[0]), int(v2[1]))
                     cv2.line(frame, pt1, pt2, color, 2, cv2.LINE_AA)
+
+def draw_frame_axes(frame, camera_3d, transform, w, h, length=2.0):
+    """Draw X/Y/Z axes based on the transform."""
+    # Origin
+    origin_local = (0, 0, 0)
+    tx, ty, tz, _ = transform.transform_point(origin_local)
+    origin_2d = project_3d_to_2d((tx, ty, tz), camera_3d, w, h)
+    
+    if origin_2d is None: return
+
+    # Axes endpoints
+    axes = [
+        ((length, 0, 0), (0, 0, 255)),   # X - Red (BGR) -> No, OpenCV is BGR, so (0,0,255) is Red
+        ((0, length, 0), (0, 255, 0)),   # Y - Green
+        ((0, 0, length), (255, 0, 0))    # Z - Blue
+    ]
+    
+    for local_pt, color in axes:
+        # Transform direction vector? No, transform point (origin + axis)
+        pt_local = (local_pt[0], local_pt[1], local_pt[2])
+        wx, wy, wz, _ = transform.transform_point(pt_local)
+        
+        pt_2d = project_3d_to_2d((wx, wy, wz), camera_3d, w, h)
+        
+        if pt_2d is not None:
+            p1 = (int(origin_2d[0]), int(origin_2d[1]))
+            p2 = (int(pt_2d[0]), int(pt_2d[1]))
+            cv2.line(frame, p1, p2, color, 3, cv2.LINE_AA)
 
 def main():
     cam = Camera()
@@ -132,6 +161,7 @@ def main():
                 
                 if i == 0:
                     voxel_editor.update_mode(stable_gesture)
+                    voxel_editor.update_manipulation(all_landmarks, w, h)
                     
                     thumb_tip = landmarks[4]
                     index_tip = landmarks[8]
@@ -167,7 +197,7 @@ def main():
                             if erased:
                                 print(f"✗ Voxel erased at {target} | Total: {voxel_grid.count()}")
                     
-                    elif voxel_editor.mode == "ROTATE":
+                    elif voxel_editor.mode == "ROTATE_CAM":
                         cursor_color = (255, 255, 0)
                         palm_center = landmarks[0]
                         voxel_editor.update_rotation(palm_center[0], palm_center[1])
@@ -180,37 +210,61 @@ def main():
                 if two_hand:
                     gestures = [two_hand, two_hand]
                     if two_hand == "ZOOM":
-                        voxel_editor.cycle_color()
-                        print(f"Color cycled to {voxel_editor.get_current_color()}")
+                        pass # Handled by update_manipulation now
         else:
             voxel_editor.reset_rotation()
 
         # ======== Render 3D Voxels ========
-        voxels = list(voxel_grid.get_all_voxels())
-        sorted_voxels = sort_voxels_by_depth(voxels, camera_3d)
+        # 1. Get all voxels
+        raw_voxels = list(voxel_grid.get_all_voxels())
+        
+        # 2. Transform centers for sorting
+        transformed_voxels_for_sort = []
+        for pos, color in raw_voxels:
+            # Transform center
+            tx, ty, tz, _ = voxel_grid.transform.transform_point(pos)
+            transformed_voxels_for_sort.append(((tx, ty, tz), color, pos)) # Keep original pos for Vertex generation
+            
+        # 3. Sort based on transformed centers
+        sorted_pack = sort_voxels_by_depth([(p[0], p[1]) for p in transformed_voxels_for_sort], camera_3d)
+        
+        # Reconstruct sorted list with original positions
+        # sort_voxels_by_depth returns (pos, color) list. 
+        # But we need the original 'pos' to generate vertices (0,0,0 based) and then transform them.
+        # Actually, if we just use the sorted indices or re-map.
+        # Let's write a custom sort here or modify the input to sort_voxels.
+        # sort_voxels_by_depth takes (pos, color). We gave it (transformed_pos, color).
+        # It returns sorted (transformed_pos, color).
+        # We lost the connection to 'original_pos' if we are not careful.
+        # But wait! 'get_voxel_cube_vertices' generates vertices around the input pos.
+        # If input pos is Transformed, the cube is axis-aligned at the new position.
+        # We want the cube to be ROTATED.
+        # So we MUST generate vertices from ORIGINAL pos, and then Transform Vertices.
+        
+        # HACK: We need to sort 'raw_voxels' but using 'transformed_pos' as key.
+        def get_dist_sq(v_pack):
+            t_pos = v_pack[0]
+            cx, cy, cz = camera_3d.position.x, camera_3d.position.y, camera_3d.position.z
+            return (t_pos[0]-cx)**2 + (t_pos[1]-cy)**2 + (t_pos[2]-cz)**2
+            
+        transformed_voxels_for_sort.sort(key=get_dist_sq, reverse=True)
         
         voxels_drawn = 0
         voxels_clipped = 0
         
-        # DEBUG: Print first voxel projection details
-        if frame_count == 0 and len(voxels) > 0:
-            first_voxel_pos, first_voxel_color = voxels[0]
-            print(f"\n=== FIRST VOXEL DEBUG ===")
-            print(f"Voxel position: {first_voxel_pos}")
-            print(f"Voxel color: {first_voxel_color}")
+        for t_pos, color, orig_pos in transformed_voxels_for_sort:
+            # Generate vertices in LOCAL space
+            vertices_local = get_voxel_cube_vertices(orig_pos, size=1.0)
             
-            vertices_3d = get_voxel_cube_vertices(first_voxel_pos, size=1.0)
-            print(f"First vertex (3D): {vertices_3d[0]}")
-            
-            projected_first = project_3d_to_2d(vertices_3d[0], camera_3d, w, h)
-            print(f"First vertex (2D): {projected_first}")
-        
-        for pos, color in sorted_voxels:
-            vertices_3d = get_voxel_cube_vertices(pos, size=1.0)
+            # Transform vertices to WORLD space
+            vertices_world = []
+            for v in vertices_local:
+                tx, ty, tz, _ = voxel_grid.transform.transform_point(v)
+                vertices_world.append((tx, ty, tz))
             
             vertices_2d = []
             valid_count = 0
-            for vertex in vertices_3d:
+            for vertex in vertices_world:
                 projected = project_3d_to_2d(vertex, camera_3d, w, h)
                 vertices_2d.append(projected)
                 if projected is not None:
@@ -222,9 +276,17 @@ def main():
             if draw_voxel(frame, vertices_2d, color, zbuffer=None):
                 voxels_drawn += 1
         
+        # Draw Object Gizmo (Axes)
+        draw_frame_axes(frame, camera_3d, voxel_grid.transform, w, h, length=3.0)
+        
         # Draw 3D cursor
+        
+        # Draw 3D cursor (Ensure it follows transform if needed, or visualizes properly)
         if show_cursor:
-            draw_3d_cursor(frame, voxel_editor.cursor_pos, camera_3d, w, h, cursor_color, size=0.8)
+            # Cursor is in Grid Space (returned by hand_to_world)
+            # We must transform it to World Space for drawing
+            ctx, cty, ctz, _ = voxel_grid.transform.transform_point(voxel_editor.cursor_pos)
+            draw_3d_cursor(frame, (ctx, cty, ctz), camera_3d, w, h, cursor_color, size=0.8)
         
         # FPS counter
         curr_time = time.time()

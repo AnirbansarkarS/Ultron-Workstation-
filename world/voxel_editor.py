@@ -1,8 +1,6 @@
-"""
-Interactive voxel editing with hand gestures.
-"""
 import numpy as np
 import time
+import math
 
 class VoxelEditor:
     def __init__(self, voxel_grid, camera):
@@ -15,7 +13,7 @@ class VoxelEditor:
         """
         self.voxel_grid = voxel_grid
         self.camera = camera
-        self.mode = "IDLE"  # IDLE, DRAW, ERASE, ROTATE, HOLD
+        self.mode = "IDLE"  # IDLE, DRAW, ERASE, ROTATE, HOLD, TRANSLATE, SCALE, ROTATE_OBJ
         self.cursor_pos = (0, 0, 0)
         self.max_voxels = 100  # Performance limit
         
@@ -42,9 +40,16 @@ class VoxelEditor:
         ]
         self.current_color_index = 0
         
-        # Rotation control
+        # Camera Rotate control
         self.rotation_base = None
         self.rotation_start = (0, 0, 0)
+        
+        # Object Manipulation Control
+        self.manip_start_pos = None
+        self.manip_start_scale = 1.0
+        self.manip_start_rotation = None
+        self.manip_initial_centroids = None
+        self.manip_initial_dist = 0.0
         
         # Color cycle control
         self.last_color_cycle_time = 0.0
@@ -77,6 +82,16 @@ class VoxelEditor:
         grid_y = round(world_y)
         grid_z = round(world_z)
         
+        # Apply inverse object transform to get local grid coordinates
+        # We use floating point for the cursor, but keep it relative to grid
+        raw_point = (world_x, world_y, world_z)
+        
+        if self.voxel_grid.transform:
+            inv = self.voxel_grid.transform.inverse()
+            if inv:
+                lx, ly, lz, _ = inv.transform_point(raw_point)
+                return (round(lx), round(ly), round(lz))
+        
         return (grid_x, grid_y, grid_z)
     
     def update_mode(self, gesture):
@@ -93,11 +108,26 @@ class VoxelEditor:
         elif gesture == "pinch":  # Thumb + index CLOSE together
             self.mode = "ERASE"
         elif gesture == "open_palm":
-            self.mode = "ROTATE"
+            self.mode = "ROTATE" # Camera Rotate
+        if gesture == "pointer":  # Thumb + index up (gun gesture) - FAR APART
+            self.mode = "DRAW"
+        elif gesture == "index_point":  # Fallback legacy gesture
+            self.mode = "DRAW"
+        elif gesture == "pinch_hold" or gesture == "GRAB_DRAG":
+            self.mode = "GRAB"
+        elif gesture == "pinch":  # Thumb + index CLOSE together
+            self.mode = "ERASE"
+        elif gesture == "open_palm":
+            self.mode = "ROTATE_CAM" # Camera Rotate
+        elif gesture == "SCALE_OBJECT" or gesture == "ZOOM":
+            self.mode = "SCALE"
         elif gesture == "fist":
             self.mode = "HOLD"
         else:
             self.mode = "IDLE"
+            # Reset manip state
+            self.manip_start_pos = None
+            self.manip_initial_dist = 0.0
     
     def place_voxel(self, position):
         """
@@ -240,6 +270,110 @@ class VoxelEditor:
         new_rotation = (rx + delta_y, ry + delta_x, rz)
         self.camera.rotation = new_rotation
     
+    
+    def update_manipulation(self, landmarks_list, screen_w, screen_h):
+        """
+        Handle object manipulation based on mode.
+        """
+        if self.mode == "GRAB":
+            # Use Index tip of first hand
+            if not landmarks_list: return
+            landmarks = landmarks_list[0]
+            ind = landmarks[8] # Index tip
+            wrist = landmarks[0]
+            mid_mcp = landmarks[9]
+            
+            # --- TRANSLATION ---
+            # Convert to world scale (approx)
+            wx = (ind[0] - 0.5) * 10
+            wy = -(ind[1] - 0.5) * 10
+            # Use constant depth for now or map hand Z
+            # For natural grab, we should track Z delta too
+            from vision.depth_mapper import map_depth_to_world
+            wz = map_depth_to_world(ind[2], min_depth=-3, max_depth=3)
+            
+            current_pos = np.array([wx, wy, wz])
+            
+            # --- ROTATION (Orientation) ---
+            # Vector from Wrist to Middle MCP (Hand direction)
+            v_current = np.array([mid_mcp[0] - wrist[0], -(mid_mcp[1] - wrist[1]), mid_mcp[2] - wrist[2]])
+            # Normalize
+            norm = np.linalg.norm(v_current)
+            if norm > 0: v_current /= norm
+            else: v_current = np.array([0, 1, 0])
+
+            if self.manip_start_pos is None:
+                self.manip_start_pos = current_pos
+                angle = math.acos(dot)
+                
+                # Threshold to avoid jitter
+                if abs(angle) > 0.02: # ~1 degree
+                    # Axis needs to be normalized
+                    axis_norm = np.linalg.norm(axis)
+                    if axis_norm > 0.001:
+                        axis /= axis_norm
+                        # Create rotation matrix
+                        from math3d.matrix import Matrix4
+                        # Note: We need a generic axis rotation. Matrix4 currently only supports X/Y/Z.
+                        # I will implement a quick Rodrigues' rotation or approximation
+                        # Or just decomposed Euler.
+                        # For now, let's map main components to X/Y/Z rotations.
+                        
+                        # Simplified: Pitch (Y movement of vector) -> X rotation
+                        # Yaw (X movement of vector) -> Y rotation
+                        
+                        # Better: Update Matrix4 in next step to support Axis-Angle?
+                        # Or just use the largest component.
+                        if abs(axis[0]) > abs(axis[1]) and abs(axis[0]) > abs(axis[2]):
+                            self.voxel_grid.rotate('x', angle * np.sign(axis[0]))
+                        elif abs(axis[1]) > abs(axis[2]):
+                            self.voxel_grid.rotate('y', angle * np.sign(axis[1]))
+                        else:
+                            self.voxel_grid.rotate('z', angle * np.sign(axis[2]))
+                            
+                            # Update reference vector so we don't spin infinitely
+                            self.manip_start_rotation = v_current
+
+            # Update start pos
+            self.manip_start_pos = current_pos
+            
+        elif self.mode == "SCALE":
+            if len(landmarks_list) < 2: return
+            
+            # Distance between wrists or index tips
+            p1 = np.array(landmarks_list[0][0]) # Wrist 1
+            p2 = np.array(landmarks_list[1][0]) # Wrist 2
+            
+            dist = np.linalg.norm(p1 - p2)
+            
+            if self.manip_initial_dist == 0.0:
+                self.manip_initial_dist = dist
+                return
+            
+            # Scaling factor
+            if dist > 0:
+                scale_delta = dist / self.manip_initial_dist
+                # Dampen
+                # scale_factor = 1.0 + (scale_delta - 1.0) * 0.1
+                # But matrix multiplication accumulates.
+                # If we want 1:1 scaling mapping:
+                # We need to apply relative scale.
+                
+                # Option A: Apply small incremental scale.
+                # If dist > initial, scale > 1.
+                # We need to reset initial dist every frame? No, that drifts.
+                # Better: compare to previous frame's dist?
+                pass
+            
+            # Incremental approach
+            if self.manip_initial_dist > 0:
+                ratio = dist / self.manip_initial_dist
+                # Apply if significant change
+                if abs(ratio - 1.0) > 0.01:
+                    self.voxel_grid.scale(ratio)
+                    # Reset baseline to avoid exponential growth
+                    self.manip_initial_dist = dist
+
     def reset_rotation(self):
         """Reset rotation control."""
         self.rotation_base = None

@@ -1,7 +1,5 @@
-"""
-Matrix operations for transformations.
-"""
 import math
+import numpy as np
 from .vector import Vector3
 
 class Matrix4:
@@ -24,6 +22,15 @@ class Matrix4:
         m.data[0][3] = x
         m.data[1][3] = y
         m.data[2][3] = z
+        return m
+    
+    @staticmethod
+    def from_scale(sx, sy, sz):
+        """Create scaling matrix."""
+        m = Matrix4.identity()
+        m.data[0][0] = sx
+        m.data[1][1] = sy
+        m.data[2][2] = sz
         return m
     
     @staticmethod
@@ -100,6 +107,20 @@ class Matrix4:
         tw = self.data[3][0] * x + self.data[3][1] * y + self.data[3][2] * z + self.data[3][3] * w
         
         return (tx, ty, tz, tw)
+        
+    def inverse(self):
+        """Return the inverse of the matrix."""
+        # Convert to numpy array
+        arr = np.array(self.data)
+        try:
+            inv_arr = np.linalg.inv(arr)
+        except np.linalg.LinAlgError:
+            return None # Singular matrix
+            
+        # Convert back to Matrix4
+        res = Matrix4()
+        res.data = inv_arr.tolist()
+        return res
     
     def __repr__(self):
         rows = []
