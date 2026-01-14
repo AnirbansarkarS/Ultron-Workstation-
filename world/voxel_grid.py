@@ -2,10 +2,20 @@
 3D voxel data structure.
 """
 
+import sys
+import os
+# Ensure we can import from math3d if running as script or module
+if __name__ != "__main__":
+    from math3d.matrix import Matrix4
+else:
+    sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+    from math3d.matrix import Matrix4
+
 class VoxelGrid:
     def __init__(self, size=(32, 32, 32), create_sample=False):
         self.size = size
         self.grid = {} # Map (x, y, z) -> color/type
+        self.transform = Matrix4.identity()
         
         if create_sample:
             self._create_sample_voxels()
@@ -73,3 +83,31 @@ class VoxelGrid:
     def count(self):
         """Return number of voxels."""
         return len(self.grid)
+
+    def translate(self, x, y, z):
+        """Apply translation to the grid."""
+        t = Matrix4.from_translation(x, y, z)
+        # Apply T * current (Global transform)
+        self.transform = t.multiply(self.transform)
+        
+    def rotate(self, axis, angle):
+        """Apply rotation to the grid (radians)."""
+        if axis.lower() == 'x':
+            r = Matrix4.from_rotation_x(angle)
+        elif axis.lower() == 'y':
+            r = Matrix4.from_rotation_y(angle)
+        elif axis.lower() == 'z':
+            r = Matrix4.from_rotation_z(angle)
+        else:
+            return
+        
+        # Apply R * current (Global rotation)
+        self.transform = r.multiply(self.transform)
+        
+    def scale(self, factor):
+        """Apply uniform scaling."""
+        s = Matrix4.from_scale(factor, factor, factor)
+        self.transform = s.multiply(self.transform)
+        
+    def set_transform(self, matrix):
+        self.transform = matrix
