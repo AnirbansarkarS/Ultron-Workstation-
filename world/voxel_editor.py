@@ -288,7 +288,6 @@ class VoxelEditor:
             wx = (ind[0] - 0.5) * 10
             wy = -(ind[1] - 0.5) * 10
             # Use constant depth for now or map hand Z
-            # For natural grab, we should track Z delta too
             from vision.depth_mapper import map_depth_to_world
             wz = map_depth_to_world(ind[2], min_depth=-3, max_depth=3)
             
@@ -304,26 +303,42 @@ class VoxelEditor:
 
             if self.manip_start_pos is None:
                 self.manip_start_pos = current_pos
+                self.manip_start_rotation = v_current
+                return
+            
+            # Apply Translation Delta
+            delta = current_pos - self.manip_start_pos
+            
+            # --- AXIS LOCKING (Soft Snap) ---
+            # If movement is dominant on one axis, lock to it
+            dx, dy, dz = delta
+            adx, ady, adz = abs(dx), abs(dy), abs(dz)
+            
+            # Threshold for locking (must be moving somewhat to lock)
+            if max(adx, ady, adz) > 0.5: 
+                # Check dominance (e.g. 2x larger than others)
+                if adx > 2.0 * ady and adx > 2.0 * adz:
+                    delta[1] = 0; delta[2] = 0 # Lock to X
+                elif ady > 2.0 * adx and ady > 2.0 * adz:
+                    delta[0] = 0; delta[2] = 0 # Lock to Y
+                # Z locking omitted for now
+            
+            self.voxel_grid.translate(delta[0], delta[1], delta[2])
+            
+            # Apply Rotation Delta
+            if self.manip_start_rotation is not None:
+                # Calculate rotation from start_vector to current_vector
+                axis = np.cross(self.manip_start_rotation, v_current)
+                dot = np.dot(self.manip_start_rotation, v_current)
+                dot = max(-1.0, min(1.0, dot)) # Clamp
                 angle = math.acos(dot)
                 
                 # Threshold to avoid jitter
                 if abs(angle) > 0.02: # ~1 degree
-                    # Axis needs to be normalized
                     axis_norm = np.linalg.norm(axis)
                     if axis_norm > 0.001:
                         axis /= axis_norm
-                        # Create rotation matrix
-                        from math3d.matrix import Matrix4
-                        # Note: We need a generic axis rotation. Matrix4 currently only supports X/Y/Z.
-                        # I will implement a quick Rodrigues' rotation or approximation
-                        # Or just decomposed Euler.
-                        # For now, let's map main components to X/Y/Z rotations.
-                        
-                        # Simplified: Pitch (Y movement of vector) -> X rotation
-                        # Yaw (X movement of vector) -> Y rotation
-                        
-                        # Better: Update Matrix4 in next step to support Axis-Angle?
-                        # Or just use the largest component.
+                        # Simplified Rotation Mapping
                         if abs(axis[0]) > abs(axis[1]) and abs(axis[0]) > abs(axis[2]):
                             self.voxel_grid.rotate('x', angle * np.sign(axis[0]))
                         elif abs(axis[1]) > abs(axis[2]):
@@ -331,7 +346,8 @@ class VoxelEditor:
                         else:
                             self.voxel_grid.rotate('z', angle * np.sign(axis[2]))
                             
-                            # Update reference vector so we don't spin infinitely
+                            # Note: To prevent continuous spinning if we don't update reference,
+                            # we update the reference vector here.
                             self.manip_start_rotation = v_current
 
             # Update start pos
