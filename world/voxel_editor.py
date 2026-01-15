@@ -6,39 +6,13 @@ class VoxelEditor:
     def __init__(self, voxel_grid, camera):
         """
         Initialize voxel editor.
-        
-        Args:
-            voxel_grid: VoxelGrid instance to edit
-            camera: Camera3D instance for coordinate mapping
         """
+        from tools.tool_manager import ToolManager
         self.voxel_grid = voxel_grid
         self.camera = camera
-        self.mode = "IDLE"  # IDLE, DRAW, ERASE, ROTATE, HOLD, TRANSLATE, SCALE, ROTATE_OBJ
+        self.tool_manager = ToolManager(voxel_grid)
+        
         self.cursor_pos = (0, 0, 0)
-        self.max_voxels = 100  # Performance limit
-        
-        # Placement control (prevent spam)
-        self.last_placed_pos = None
-        self.placement_cooldown = 0.3  # seconds between placements
-        self.last_placement_time = 0.0
-        
-        # Erase control (prevent spam)
-        self.last_erased_pos = None
-        self.erase_cooldown = 0.2
-        self.last_erase_time = 0.0
-        
-        # Color palette for drawing
-        self.colors = [
-            (255, 0, 0),    # Red
-            (0, 255, 0),    # Green
-            (0, 0, 255),    # Blue
-            (255, 255, 0),  # Yellow
-            (255, 0, 255),  # Magenta
-            (0, 255, 255),  # Cyan
-            (255, 128, 0),  # Orange
-            (128, 0, 255),  # Purple
-        ]
-        self.current_color_index = 0
         
         # Camera Rotate control
         self.rotation_base = None
@@ -50,11 +24,11 @@ class VoxelEditor:
         self.manip_start_rotation = None
         self.manip_initial_centroids = None
         self.manip_initial_dist = 0.0
-        
-        # Color cycle control
-        self.last_color_cycle_time = 0.0
-        self.color_cycle_cooldown = 0.5
     
+    @property
+    def mode(self):
+        return self.tool_manager.active_tool
+
     def hand_to_world(self, hand_x, hand_y, hand_z, screen_width, screen_height):
         """
         Convert hand position to 3D world coordinates.
@@ -83,7 +57,6 @@ class VoxelEditor:
         grid_z = round(world_z)
         
         # Apply inverse object transform to get local grid coordinates
-        # We use floating point for the cursor, but keep it relative to grid
         raw_point = (world_x, world_y, world_z)
         
         if self.voxel_grid.transform:
@@ -93,151 +66,54 @@ class VoxelEditor:
                 return (round(lx), round(ly), round(lz))
         
         return (grid_x, grid_y, grid_z)
-    
+
     def update_mode(self, gesture):
         """
-        Update edit mode based on current gesture.
-        
-        Args:
-            gesture: Gesture name (e.g., "pointer", "pinch", "open_palm")
+        Update tool state based on gesture.
+        Handle transient modes (Rotate, Hold).
         """
-        if gesture == "pointer":  # Thumb + index up (gun gesture) - FAR APART
-            self.mode = "DRAW"
-        elif gesture == "index_point":  # Fallback legacy gesture
-            self.mode = "DRAW"
-        elif gesture == "pinch":  # Thumb + index CLOSE together
-            self.mode = "ERASE"
-        elif gesture == "open_palm":
-            self.mode = "ROTATE" # Camera Rotate
-        if gesture == "pointer":  # Thumb + index up (gun gesture) - FAR APART
-            self.mode = "DRAW"
-        elif gesture == "index_point":  # Fallback legacy gesture
-            self.mode = "DRAW"
-        elif gesture == "pinch_hold" or gesture == "GRAB_DRAG":
-            self.mode = "GRAB"
-        elif gesture == "pinch":  # Thumb + index CLOSE together
-            self.mode = "ERASE"
-        elif gesture == "open_palm":
-            self.mode = "ROTATE_CAM" # Camera Rotate
-        elif gesture == "SCALE_OBJECT" or gesture == "ZOOM":
-            self.mode = "SCALE"
+        current_tool = self.tool_manager.active_tool
+        
+        # Transient Modes
+        if gesture == "open_palm":
+            if current_tool != "ROTATE_CAM":
+                self.previous_tool = current_tool
+                self.tool_manager.set_tool("ROTATE_CAM")
         elif gesture == "fist":
-            self.mode = "HOLD"
+            if current_tool != "HOLD":
+                self.previous_tool = current_tool
+                self.tool_manager.set_tool("HOLD")
         else:
-            self.mode = "IDLE"
-            # Reset manip state
-            self.manip_start_pos = None
-            self.manip_initial_dist = 0.0
-    
-    def place_voxel(self, position):
+            # Revert if we were in a transient mode and gesture ended
+            if current_tool == "ROTATE_CAM" or current_tool == "HOLD":
+                if hasattr(self, 'previous_tool'):
+                    self.tool_manager.set_tool(self.previous_tool)
+                else:
+                    self.tool_manager.set_tool("DRAW")
+        
+    def use_current_tool(self, gesture):
         """
-        Place a voxel at the given position.
-        
-        Args:
-            position: (x, y, z) grid position
-        
-        Returns:
-            True if placed, False if failed
+        Execute the current tool's action if the gesture matches.
         """
-        now = time.time()
-        
-        # Check cooldown timer
-        if now - self.last_placement_time < self.placement_cooldown:
-            return False
-        
-        # Check if same position as last placement
-        if position == self.last_placed_pos:
-            return False
-        
-        # Check voxel limit
-        if self.voxel_grid.count() >= self.max_voxels:
-            return False
-        
-        # Check if voxel already exists
-        if self.voxel_grid.get_voxel(position) is not None:
-            return False
-        
-        # Place voxel with current color
-        color = self.colors[self.current_color_index]
-        self.voxel_grid.set_voxel(position, color)
-        
-        # Update tracking
-        self.last_placed_pos = position
-        self.last_placement_time = now
-        
-        return True
-    
-    def erase_voxel(self, position):
-        """
-        Erase voxel at position.
-        
-        Args:
-            position: (x, y, z) grid position
-        
-        Returns:
-            True if erased, False if no voxel there
-        """
-        now = time.time()
-        
-        # Check cooldown
-        if now - self.last_erase_time < self.erase_cooldown:
-            return False
-        
-        # Check if same position as last erase
-        if position == self.last_erased_pos:
-            return False
-        
-        # Erase voxel
-        if self.voxel_grid.get_voxel(position) is not None:
-            if position in self.voxel_grid.grid:
-                del self.voxel_grid.grid[position]
+        if self.mode == "ROTATE_CAM":
+            return # Handled separately
             
-            # Update tracking
-            self.last_erased_pos = position
-            self.last_erase_time = now
-            return True
-        
-        return False
-    
-    def find_nearest_voxel(self, position, max_distance=2):
-        """
-        Find nearest voxel to given position.
-        
-        Args:
-            position: (x, y, z) target position
-            max_distance: Maximum distance to search
-        
-        Returns:
-            (x, y, z) of nearest voxel or None
-        """
-        px, py, pz = position
-        nearest = None
-        min_dist = float('inf')
-        
-        for voxel_pos, _ in self.voxel_grid.get_all_voxels():
-            vx, vy, vz = voxel_pos
-            dist = ((px - vx)**2 + (py - vy)**2 + (pz - vz)**2)**0.5
-            
-            if dist < min_dist and dist <= max_distance:
-                min_dist = dist
-                nearest = voxel_pos
-        
-        return nearest
-    
+        # Map gestures to "Action Active"
+        is_active = False
+        if self.mode == "DRAW" and (gesture == "pointer" or gesture == "index_point"):
+            is_active = True
+        elif self.mode == "ERASE" and gesture == "pinch":
+            is_active = True
+        elif self.mode == "COLOR_PICK" and gesture == "pinch":
+             is_active = True
+             
+        return self.tool_manager.use_tool(self.cursor_pos, is_active)
+
     def cycle_color(self):
-        """Cycle to next color in palette."""
-        now = time.time()
-        
-        # Check cooldown
-        if now - self.last_color_cycle_time < self.color_cycle_cooldown:
-            return
-        
-        self.current_color_index = (self.current_color_index + 1) % len(self.colors)
-        self.last_color_cycle_time = now
+        self.tool_manager.cycle_color()
     
     def get_current_color(self):
-        """Get current drawing color."""
-        return self.colors[self.current_color_index]
+        return self.tool_manager.get_current_color()
     
     def start_rotation(self, hand_x, hand_y):
         """

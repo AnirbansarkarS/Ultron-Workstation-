@@ -130,6 +130,13 @@ def main():
 
     frame_count = 0
 
+    # Phase 6: UI Manager
+    from ui.ui_manager import UIManager
+    ui_manager = None
+
+    # Debugging import
+    import traceback
+
     while True:
         frame = cam.read()
         if frame is None:
@@ -137,17 +144,27 @@ def main():
         
         h, w = frame.shape[:2]
         
+        # Init UI Manager once we have dimensions
+        if ui_manager is None:
+            ui_manager = UIManager(w, h, voxel_editor.tool_manager)
+        
         # DEBUG: Test projection on first frame
         if frame_count == 0:
             test_projected = project_3d_to_2d(test_point, camera_3d, w, h)
             print(f"Test point (screen): {test_projected}")
             print(f"Screen size: {w}x{h}")
 
-        all_landmarks, _ = tracker.process(frame)
+        try:
+            all_landmarks, _ = tracker.process(frame)
+        except TypeError:
+            print("HandTracker returned NoneType, skipping frame.")
+            continue
 
         gestures = []
         show_cursor = False
-        cursor_color = (0, 255, 255)
+        cursor_2d_pos = (0, 0) # For UI interaction
+        cursor_color = (0, 255, 255)  # Default cyan cursor
+        is_ui_interacting = False # Did UI capture input?
         
         if all_landmarks:
             for i, landmarks in enumerate(all_landmarks):
@@ -160,57 +177,70 @@ def main():
                     gestures.append(stable_gesture)
                 
                 if i == 0:
-                    voxel_editor.update_mode(stable_gesture)
-                    voxel_editor.update_manipulation(all_landmarks, w, h)
-                    
+                    # --- calculate cursor position ---
                     thumb_tip = landmarks[4]
                     index_tip = landmarks[8]
-                    
                     mid_x = (thumb_tip[0] + index_tip[0]) / 2.0
                     mid_y = (thumb_tip[1] + index_tip[1]) / 2.0
                     mid_z = (thumb_tip[2] + index_tip[2]) / 2.0
                     
-                    voxel_editor.cursor_pos = voxel_editor.hand_to_world(
-                        mid_x, mid_y, mid_z, w, h
-                    )
-                    
-                    show_cursor = True
-                    
                     cursor_2d_x = int(mid_x * w)
                     cursor_2d_y = int(mid_y * h)
+                    cursor_2d_pos = (cursor_2d_x, cursor_2d_y)
                     
-                    cv2.line(frame, (cursor_2d_x - 20, cursor_2d_y), (cursor_2d_x + 20, cursor_2d_y), (0, 255, 255), 2)
-                    cv2.line(frame, (cursor_2d_x, cursor_2d_y - 20), (cursor_2d_x, cursor_2d_y + 20), (0, 255, 255), 2)
-                    cv2.circle(frame, (cursor_2d_x, cursor_2d_y), 8, (0, 255, 255), 2)
+                    # --- UI UPDATE ---
+                    # Check "pinch" for click
+                    is_pinching = (stable_gesture == "pinch")
+                    is_ui_interacting = ui_manager.update(cursor_2d_x, cursor_2d_y, is_pinching)
                     
-                    if voxel_editor.mode == "DRAW":
-                        cursor_color = (0, 255, 0)
-                        placed = voxel_editor.place_voxel(voxel_editor.cursor_pos)
-                        if placed:
-                            print(f"✓ Voxel placed at {voxel_editor.cursor_pos} | Total: {voxel_grid.count()}")
-                    
-                    elif voxel_editor.mode == "ERASE":
-                        cursor_color = (0, 0, 255)
-                        target = voxel_editor.find_nearest_voxel(voxel_editor.cursor_pos)
-                        if target:
-                            erased = voxel_editor.erase_voxel(target)
-                            if erased:
-                                print(f"✗ Voxel erased at {target} | Total: {voxel_grid.count()}")
-                    
-                    elif voxel_editor.mode == "ROTATE_CAM":
-                        cursor_color = (255, 255, 0)
-                        palm_center = landmarks[0]
-                        voxel_editor.update_rotation(palm_center[0], palm_center[1])
-                    
-                    else:
-                        voxel_editor.reset_rotation()
-            
+                    if not is_ui_interacting:
+                        # Only update World Modes if UI didn't capture
+                        voxel_editor.update_mode(stable_gesture)
+                        voxel_editor.update_manipulation(all_landmarks, w, h)
+                        
+                        voxel_editor.cursor_pos = voxel_editor.hand_to_world(
+                            mid_x, mid_y, mid_z, w, h
+                        )
+                        
+                        show_cursor = True
+                        
+                        # Execute Tool Action (Only if not clicking UI)
+                        result = voxel_editor.use_current_tool(stable_gesture)
+                        if result:
+                             print(f"Action: {result} | Total: {voxel_grid.count()}")
+                        
+                        # Handle Rotation
+                        if voxel_editor.mode == "ROTATE_CAM":
+                             cursor_color = (255, 255, 0)
+                             palm_center = landmarks[0]
+                             voxel_editor.update_rotation(palm_center[0], palm_center[1])
+                        else:
+                             voxel_editor.reset_rotation()
+
             if len(all_landmarks) == 2:
                 two_hand = recognizer.recognize_two_hands(all_landmarks[0], all_landmarks[1])
                 if two_hand:
                     gestures = [two_hand, two_hand]
-                    if two_hand == "ZOOM":
-                        pass # Handled by update_manipulation now
+                    if two_hand == "ZOOM" or two_hand == "SCALE_OBJECT":
+                         if not is_ui_interacting:
+                             voxel_editor.update_mode(two_hand)
+                             voxel_editor.update_manipulation(all_landmarks, w, h)
+        else:
+            voxel_editor.reset_rotation()
+            
+        # Draw 2D Cursor for UI feedback even if no world cursor
+        if is_ui_interacting:
+             cv2.circle(frame, cursor_2d_pos, 5, (0, 0, 255), -1) 
+        
+        # Draw UI
+        if ui_manager:
+            ui_manager.draw(frame)
+        
+        # Draw Hand Cursor (World Context)
+        if show_cursor and not is_ui_interacting:
+            cx, cy = cursor_2d_pos
+            cv2.line(frame, (cx - 20, cy), (cx + 20, cy), (0, 255, 255), 2)
+            cv2.line(frame, (cx, cy - 20), (cx, cy + 20), (0, 255, 255), 2)
         else:
             voxel_editor.reset_rotation()
 
@@ -225,13 +255,8 @@ def main():
             tx, ty, tz, _ = voxel_grid.transform.transform_point(pos)
             transformed_voxels_for_sort.append(((tx, ty, tz), color, pos)) # Keep original pos for Vertex generation
             
-        # 3. Sort based on transformed centers
-        sorted_pack = sort_voxels_by_depth([(p[0], p[1]) for p in transformed_voxels_for_sort], camera_3d)
-        
-        # Reconstruct sorted list with original positions
-        # sort_voxels_by_depth returns (pos, color) list. 
-        # But we need the original 'pos' to generate vertices (0,0,0 based) and then transform them.
-        # Actually, if we just use the sorted indices or re-map.
+        # 3. Sort based on transformed centers (Manual sort to preserve original pos)
+        # sorted_pack = sort_voxels_by_depth(...) # REDUNDANT/REMOVED
         # Let's write a custom sort here or modify the input to sort_voxels.
         # sort_voxels_by_depth takes (pos, color). We gave it (transformed_pos, color).
         # It returns sorted (transformed_pos, color).
@@ -348,4 +373,9 @@ def main():
     cv2.destroyAllWindows()
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception:
+        import traceback
+        traceback.print_exc()
+        input("Press Enter to exit...")
