@@ -5,6 +5,7 @@ A gesture-controlled 3D voxel editor that uses computer vision (OpenCV + MediaPi
 
 ## 🚀 Features
 
+
 *   **Stable Workspace**: A precise, non-rotating 3D environment for content creation.
 *   **Intuitive Cursor**: The 3D cursor floats exactly at the midpoint between your thumb and index finger, giving you a tactile sense of "holding" the voxels.
 *   **Gesture Control Engine**:
