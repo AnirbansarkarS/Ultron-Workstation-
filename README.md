@@ -2,9 +2,7 @@
 
 A gesture-controlled 3D voxel editor that uses computer vision (OpenCV + MediaPipe) to let you build and manipulate 3D structures with your hands.
 
-
 ## 🚀 Features
-
 
 *   **Stable Workspace**: A precise, non-rotating 3D environment for content creation.
 *   **Intuitive Cursor**: The 3D cursor floats exactly at the midpoint between your thumb and index finger, giving you a tactile sense of "holding" the voxels.
