@@ -173,6 +173,30 @@ class Handler(BaseHTTPRequestHandler):
         elif path == '/api/stop':
             self._send_json(stop_workspace())
 
+        elif path == '/api/upload':
+            import base64
+            body = self._read_json()
+            filename = body.get("filename")
+            file_b64 = body.get("file_data")
+            if not filename or not file_b64:
+                self._send_json({"ok": False, "error": "Missing filename or file_data"}, 400)
+                return
+
+            os.makedirs(MODELS_DIR, exist_ok=True)
+            safe_name = os.path.basename(filename)
+            save_path = os.path.join(MODELS_DIR, safe_name)
+
+            try:
+                if ',' in file_b64:
+                    file_b64 = file_b64.split(',', 1)[1]
+                data_bytes = base64.b64decode(file_b64)
+                with open(save_path, 'wb') as f:
+                    f.write(data_bytes)
+                print(f"[Server] Model saved to: {save_path}")
+                self._send_json({"ok": True, "filename": safe_name, "path": save_path})
+            except Exception as e:
+                self._send_json({"ok": False, "error": str(e)}, 500)
+
         else:
             self.send_error(404)
 

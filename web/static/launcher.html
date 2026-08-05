@@ -150,9 +150,9 @@
     /* ─── Card grid ──────────────────────────────────────────────── */
     .card-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
       gap: 20px;
-      width: 100%; max-width: 900px;
+      width: 100%; max-width: 920px;
     }
 
     .card {
@@ -172,6 +172,28 @@
     .card-icon { font-size: 2rem; margin-bottom: 14px; }
     .card h2 { font-size: 1.15rem; font-weight: 700; margin-bottom: 8px; }
     .card p  { font-size: .85rem; color: var(--muted); line-height: 1.6; margin-bottom: 20px; }
+
+    /* ─── Drag & Drop Zone ───────────────────────────────────────── */
+    .drop-zone {
+      border: 2px dashed rgba(167, 139, 250, 0.3);
+      border-radius: var(--radius-sm);
+      padding: 24px 16px;
+      text-align: center;
+      background: rgba(255, 255, 255, 0.02);
+      cursor: pointer;
+      transition: all 0.25s ease;
+      margin-bottom: 16px;
+      position: relative;
+    }
+    .drop-zone:hover, .drop-zone.drag-over {
+      border-color: #67e8f9;
+      background: rgba(6, 182, 212, 0.08);
+      box-shadow: 0 0 20px rgba(6, 182, 212, 0.2);
+    }
+    .drop-icon { font-size: 2.2rem; margin-bottom: 8px; }
+    .drop-text { font-size: 0.88rem; font-weight: 600; color: var(--text); }
+    .drop-text strong { color: var(--accent); }
+    .drop-sub { font-size: 0.75rem; color: var(--muted); margin-top: 4px; }
 
     /* ─── Buttons ─────────────────────────────────────────────────── */
     .btn {
@@ -206,36 +228,18 @@
 
     .btn:disabled { opacity: .45; cursor: not-allowed; pointer-events: none; }
 
-    /* ─── Model path row ─────────────────────────────────────────── */
-    .model-row {
-      display: flex; gap: 10px; margin-bottom: 16px;
-    }
-    .model-row input[type="text"] {
-      flex: 1;
-      background: rgba(255,255,255,.05);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-sm);
-      padding: 10px 14px;
-      color: var(--text);
-      font-family: var(--mono); font-size: .8rem;
-      outline: none;
-      transition: border-color .2s;
-    }
-    .model-row input:focus { border-color: rgba(167,139,250,.5); }
-    .model-row input::placeholder { color: var(--muted); }
-
     /* ─── Models list ────────────────────────────────────────────── */
     #modelsList {
       list-style: none;
       display: flex; flex-direction: column; gap: 6px;
-      max-height: 220px; overflow-y: auto;
+      max-height: 200px; overflow-y: auto;
     }
     #modelsList::-webkit-scrollbar { width: 4px; }
     #modelsList::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
 
     .model-item {
       display: flex; align-items: center; justify-content: space-between;
-      padding: 8px 12px;
+      padding: 10px 14px;
       background: rgba(255,255,255,.03);
       border: 1px solid var(--border);
       border-radius: var(--radius-sm);
@@ -243,18 +247,18 @@
       transition: border-color .2s, background .2s;
     }
     .model-item:hover { border-color: rgba(6,182,212,.3); background: rgba(6,182,212,.06); }
-    .model-item.selected { border-color: rgba(167,139,250,.6); background: rgba(124,58,237,.08); }
+    .model-item.selected { border-color: rgba(167,139,250,.8); background: rgba(124,58,237,.12); box-shadow: 0 0 12px rgba(124,58,237,0.3); }
 
-    .model-item-name { font-family: var(--mono); font-size: .78rem; }
-    .model-item-size { font-size: .7rem; color: var(--muted); }
+    .model-item-name { font-family: var(--mono); font-size: .8rem; font-weight: 600; }
+    .model-item-size { font-size: .72rem; color: var(--muted); }
 
     .empty-hint {
-      text-align: center; color: var(--muted); font-size: .82rem; padding: 20px;
+      text-align: center; color: var(--muted); font-size: .82rem; padding: 16px;
     }
 
     /* ─── Log card ───────────────────────────────────────────────── */
     #logCard {
-      max-width: 900px; width: 100%;
+      max-width: 920px; width: 100%;
       background: var(--surface);
       border: 1px solid var(--border);
       border-radius: var(--radius);
@@ -277,7 +281,7 @@
     /* ─── Gesture guide ──────────────────────────────────────────── */
     .gesture-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
       gap: 10px;
     }
     .gesture-item {
@@ -333,7 +337,6 @@
     /* ─── Responsive ─────────────────────────────────────────────── */
     @media (max-width: 600px) {
       .card-grid { grid-template-columns: 1fr; }
-      .model-row { flex-direction: column; }
     }
   </style>
 </head>
@@ -379,7 +382,7 @@
         <p>Start the OpenCV hand-tracking session.
            The window opens in fullscreen with your webcam feed.</p>
         <div style="display:flex; gap:10px; flex-wrap:wrap;">
-          <button class="btn btn-primary" id="btnLaunch">▶ Launch</button>
+          <button class="btn btn-primary" id="btnLaunch">▶ Launch Voxel Engine</button>
           <button class="btn btn-danger"  id="btnStop" style="display:none">■ Stop</button>
         </div>
       </div>
@@ -388,20 +391,28 @@
       <div class="card">
         <div class="card-icon">🧊</div>
         <h2>Import 3D Model</h2>
-        <p>Select a model from your <code>models/</code> folder or paste any
-           path below. Drop models into <code>models/</code> and click Refresh.</p>
+        <p>Drag & drop or select your <strong>.glb, .gltf, .obj, .stl</strong> file to load it directly into your OpenCV workspace.</p>
 
-        <div class="model-row">
-          <input type="text" id="modelPath" placeholder="C:\path\to\model.obj or .glb …" />
-          <button class="btn btn-secondary" id="btnRefresh" title="Refresh model list">↻</button>
+        <!-- Drag & Drop Zone -->
+        <div class="drop-zone" id="dropZone">
+          <div class="drop-icon">📁</div>
+          <div class="drop-text">Drag & drop your <strong>3D Model</strong> here</div>
+          <div class="drop-sub">or click to browse (.glb, .gltf, .obj, .stl)</div>
+        </div>
+
+        <input type="file" id="fileInput" accept=".glb,.gltf,.obj,.stl,.ply" style="display:none" />
+
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
+          <span style="font-size:.78rem; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:.05em;">Available Models</span>
+          <button class="btn btn-secondary" id="btnRefresh" style="padding:4px 10px; font-size:.75rem;" title="Refresh list">↻ Refresh</button>
         </div>
 
         <ul id="modelsList">
           <li class="empty-hint">Loading models…</li>
         </ul>
 
-        <div style="margin-top:14px; display:flex; gap:10px; flex-wrap:wrap;">
-          <button class="btn btn-primary" id="btnLaunchModel">▶ Launch with Model</button>
+        <div style="margin-top:16px; display:flex; gap:10px; flex-wrap:wrap;">
+          <button class="btn btn-primary" id="btnLaunchModel">▶ Launch with Selected Model</button>
         </div>
       </div>
 
@@ -454,7 +465,7 @@
           <p style="font-size:.82rem; color:var(--muted); margin-bottom:10px;">Keyboard shortcuts (while workspace is running):</p>
           <div class="key-chips">
             <kbd>[M]</kbd> <span style="font-size:.8rem">Toggle VOXEL ↔ MODEL mode</span>
-            <kbd>[O]</kbd> <span style="font-size:.8rem">Open file picker</span>
+            <kbd>[O]</kbd> <span style="font-size:.8rem">Open file picker in OpenCV</span>
             <kbd>[R]</kbd> <span style="font-size:.8rem">Reset model transform</span>
             <kbd>[ESC]</kbd> <span style="font-size:.8rem">Quit workspace</span>
           </div>
@@ -550,13 +561,17 @@
 
       list.innerHTML = '';
       if (models.length === 0) {
-        list.innerHTML = '<li class="empty-hint">No models found in <code>models/</code> folder.<br/>Drop .obj, .stl, .glb files there and click ↻</li>';
+        list.innerHTML = '<li class="empty-hint">No models in <code>models/</code> folder.<br/>Drag & drop a .glb or .obj file above to upload!</li>';
         return;
       }
 
-      models.forEach(m => {
+      models.forEach((m, idx) => {
         const li = document.createElement('li');
         li.className = 'model-item';
+        if (selectedModel === m.path || (selectedModel === null && idx === 0)) {
+          li.classList.add('selected');
+          selectedModel = m.path;
+        }
         li.innerHTML = `
           <span class="model-item-name">📦 ${m.name}</span>
           <span class="model-item-size">${fmt(m.size)}</span>`;
@@ -565,7 +580,6 @@
           document.querySelectorAll('.model-item').forEach(el => el.classList.remove('selected'));
           li.classList.add('selected');
           selectedModel = m.path;
-          document.getElementById('modelPath').value = m.path;
           log(`Selected model: ${m.name}`, 'info');
         });
         list.appendChild(li);
@@ -574,6 +588,81 @@
       list.innerHTML = '<li class="empty-hint">Failed to load models list.</li>';
     }
   }
+
+  // ── File Upload via Drag & Drop or Picker ─────────────────────────
+  async function uploadFile(file) {
+    if (!file) return;
+
+    log(`Uploading ${file.name} (${fmt(file.size)})…`, 'info');
+    toast(`⏳ Uploading ${file.name}…`);
+
+    const reader = new FileReader();
+    reader.onload = async function(e) {
+      const base64Data = e.target.result;
+      try {
+        const res = await fetch('/api/upload', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            filename: file.name,
+            file_data: base64Data
+          })
+        });
+
+        const data = await res.json();
+        if (data.ok) {
+          log(`✓ Uploaded ${data.filename}`, 'ok');
+          toast(`✅ Uploaded ${data.filename}!`);
+          selectedModel = data.path;
+          await loadModels();
+        } else {
+          log(`✗ Upload failed: ${data.error}`, 'err');
+          toast(`❌ Upload failed: ${data.error}`);
+        }
+      } catch (err) {
+        log(`✗ Upload network error: ${err}`, 'err');
+        toast(`❌ Error uploading file`);
+      }
+    };
+
+    reader.readAsDataURL(file);
+  }
+
+  // Drag and Drop listeners
+  const dropZone = document.getElementById('dropZone');
+  const fileInput = document.getElementById('fileInput');
+
+  dropZone.addEventListener('click', () => fileInput.click());
+
+  fileInput.addEventListener('change', (e) => {
+    if (e.target.files.length > 0) {
+      uploadFile(e.target.files[0]);
+    }
+  });
+
+  ['dragenter', 'dragover'].forEach(eventName => {
+    dropZone.addEventListener(eventName, (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dropZone.classList.add('drag-over');
+    }, false);
+  });
+
+  ['dragleave', 'drop'].forEach(eventName => {
+    dropZone.addEventListener(eventName, (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dropZone.classList.remove('drag-over');
+    }, false);
+  });
+
+  dropZone.addEventListener('drop', (e) => {
+    const dt = e.dataTransfer;
+    const files = dt.files;
+    if (files.length > 0) {
+      uploadFile(files[0]);
+    }
+  });
 
   // ── Launch ────────────────────────────────────────────────────────
   async function launch(modelPath) {
@@ -615,9 +704,8 @@
   document.getElementById('btnLaunch').addEventListener('click', () => launch(null));
 
   document.getElementById('btnLaunchModel').addEventListener('click', () => {
-    const path = document.getElementById('modelPath').value.trim() || selectedModel;
-    if (!path) { toast('⚠️ Enter or select a model path first.'); return; }
-    launch(path);
+    if (!selectedModel) { toast('⚠️ Select or drag & drop a 3D model first.'); return; }
+    launch(selectedModel);
   });
 
   document.getElementById('btnStop').addEventListener('click', stop);
@@ -625,12 +713,6 @@
   document.getElementById('btnRefresh').addEventListener('click', () => {
     loadModels();
     toast('Model list refreshed.');
-  });
-
-  // modelPath typed → clear selection
-  document.getElementById('modelPath').addEventListener('input', () => {
-    selectedModel = null;
-    document.querySelectorAll('.model-item').forEach(el => el.classList.remove('selected'));
   });
 
   // ── Init ──────────────────────────────────────────────────────────

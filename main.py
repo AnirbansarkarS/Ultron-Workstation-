@@ -334,95 +334,100 @@ def main():
                 print("[Main] Model transform reset.")
 
         # ── Hand tracking ─────────────────────────────────────────────
-        all_landmarks, _ = tracker.process(frame)
-
         gestures    = []
         show_cursor = False
         cursor_color = (0, 255, 255)
 
-        if all_landmarks:
-            for i, landmarks in enumerate(all_landmarks):
-                draw_hand(frame, landmarks)
+        try:
+            all_landmarks, _ = tracker.process(frame)
 
-                gesture = recognizer.recognize_single_hand(landmarks)
-                stable_gesture = gesture
+            if all_landmarks:
+                for i, landmarks in enumerate(all_landmarks):
+                    draw_hand(frame, landmarks)
 
-                if i < len(state_machines):
-                    stable_gesture = state_machines[i].update(gesture)
-                    gestures.append(stable_gesture)
+                    gesture = recognizer.recognize_single_hand(landmarks)
+                    stable_gesture = gesture
 
-                if i == 0:
-                    # ── VOXEL mode: original behaviour ────────────────
-                    if workspace_mode == "VOXEL":
-                        voxel_editor.update_mode(stable_gesture)
-                        voxel_editor.update_manipulation(all_landmarks, w, h)
+                    if i < len(state_machines):
+                        stable_gesture = state_machines[i].update(gesture)
+                        gestures.append(stable_gesture)
 
-                        thumb_tip  = landmarks[4]
-                        index_tip  = landmarks[8]
+                    if i == 0:
+                        # ── VOXEL mode: original behaviour ────────────────
+                        if workspace_mode == "VOXEL":
+                            voxel_editor.update_mode(stable_gesture)
+                            voxel_editor.update_manipulation(all_landmarks, w, h)
 
-                        mid_x = (thumb_tip[0] + index_tip[0]) / 2.0
-                        mid_y = (thumb_tip[1] + index_tip[1]) / 2.0
-                        mid_z = (thumb_tip[2] + index_tip[2]) / 2.0
+                            thumb_tip  = landmarks[4]
+                            index_tip  = landmarks[8]
 
-                        voxel_editor.cursor_pos = voxel_editor.hand_to_world(
-                            mid_x, mid_y, mid_z, w, h
-                        )
+                            mid_x = (thumb_tip[0] + index_tip[0]) / 2.0
+                            mid_y = (thumb_tip[1] + index_tip[1]) / 2.0
+                            mid_z = (thumb_tip[2] + index_tip[2]) / 2.0
 
-                        show_cursor = True
-                        cursor_2d_x = int(mid_x * w)
-                        cursor_2d_y = int(mid_y * h)
+                            voxel_editor.cursor_pos = voxel_editor.hand_to_world(
+                                mid_x, mid_y, mid_z, w, h
+                            )
 
-                        cv2.line(frame, (cursor_2d_x - 20, cursor_2d_y),
-                                 (cursor_2d_x + 20, cursor_2d_y), (0, 255, 255), 2)
-                        cv2.line(frame, (cursor_2d_x, cursor_2d_y - 20),
-                                 (cursor_2d_x, cursor_2d_y + 20), (0, 255, 255), 2)
-                        cv2.circle(frame, (cursor_2d_x, cursor_2d_y), 8,
-                                   (0, 255, 255), 2)
+                            show_cursor = True
+                            cursor_2d_x = int(mid_x * w)
+                            cursor_2d_y = int(mid_y * h)
 
-                        if voxel_editor.mode == "DRAW":
-                            cursor_color = (0, 255, 0)
-                            placed = voxel_editor.place_voxel(voxel_editor.cursor_pos)
-                            if placed:
-                                print(f"✓ Voxel at {voxel_editor.cursor_pos} | "
-                                      f"Total: {voxel_grid.count()}")
+                            cv2.line(frame, (cursor_2d_x - 20, cursor_2d_y),
+                                     (cursor_2d_x + 20, cursor_2d_y), (0, 255, 255), 2)
+                            cv2.line(frame, (cursor_2d_x, cursor_2d_y - 20),
+                                     (cursor_2d_x, cursor_2d_y + 20), (0, 255, 255), 2)
+                            cv2.circle(frame, (cursor_2d_x, cursor_2d_y), 8,
+                                       (0, 255, 255), 2)
 
-                        elif voxel_editor.mode == "ERASE":
-                            cursor_color = (0, 0, 255)
-                            target = voxel_editor.find_nearest_voxel(
-                                voxel_editor.cursor_pos)
-                            if target:
-                                erased = voxel_editor.erase_voxel(target)
-                                if erased:
-                                    print(f"✗ Voxel erased at {target} | "
+                            if voxel_editor.mode == "DRAW":
+                                cursor_color = (0, 255, 0)
+                                placed = voxel_editor.place_voxel(voxel_editor.cursor_pos)
+                                if placed:
+                                    print(f"✓ Voxel at {voxel_editor.cursor_pos} | "
                                           f"Total: {voxel_grid.count()}")
 
-                        elif voxel_editor.mode == "ROTATE_CAM":
-                            cursor_color = (255, 255, 0)
-                            palm_center = landmarks[0]
-                            voxel_editor.update_rotation(palm_center[0],
-                                                         palm_center[1])
-                        else:
-                            voxel_editor.reset_rotation()
+                            elif voxel_editor.mode == "ERASE":
+                                cursor_color = (0, 0, 255)
+                                target = voxel_editor.find_nearest_voxel(
+                                    voxel_editor.cursor_pos)
+                                if target:
+                                    erased = voxel_editor.erase_voxel(target)
+                                    if erased:
+                                        print(f"✗ Voxel erased at {target} | "
+                                              f"Total: {voxel_grid.count()}")
 
-                    # ── MODEL mode: gesture → model transform ─────────
-                    elif workspace_mode == "MODEL" and model_controller is not None:
-                        model_controller.process(stable_gesture, all_landmarks, w, h)
+                            elif voxel_editor.mode == "ROTATE_CAM":
+                                cursor_color = (255, 255, 0)
+                                palm_center = landmarks[0]
+                                voxel_editor.update_rotation(palm_center[0],
+                                                             palm_center[1])
+                            else:
+                                voxel_editor.reset_rotation()
 
-            # Two-hand gestures (always processed)
-            if len(all_landmarks) == 2:
-                two_hand = recognizer.recognize_two_hands(
-                    all_landmarks[0], all_landmarks[1])
-                if two_hand:
-                    gestures = [two_hand, two_hand]
-                    if workspace_mode == "MODEL" and model_controller is not None:
-                        model_controller.update_mode(two_hand)
-                        model_controller.update_scale(all_landmarks)
+                        # ── MODEL mode: gesture → model transform ─────────
+                        elif workspace_mode == "MODEL" and model_controller is not None:
+                            model_controller.process(stable_gesture, all_landmarks, w, h)
 
-        else:
-            voxel_editor.reset_rotation()
-            if model_controller is not None:
-                model_controller.reset_rotation()
-                model_controller.reset_grab()
+                # Two-hand gestures (always processed)
+                if len(all_landmarks) == 2:
+                    two_hand = recognizer.recognize_two_hands(
+                        all_landmarks[0], all_landmarks[1])
+                    if two_hand:
+                        gestures = [two_hand, two_hand]
+                        if workspace_mode == "MODEL" and model_controller is not None:
+                            model_controller.update_mode(two_hand)
+                            model_controller.update_scale(all_landmarks)
+
+            else:
+                voxel_editor.reset_rotation()
+                if model_controller is not None:
+                    model_controller.reset_rotation()
+                    model_controller.reset_grab()
+
+        except Exception as err:
+            print(f"[Main] Exception in hand processing loop: {err}")
+            gestures = ["ERROR"]
 
         # ══════════════════════════════════════════════════════════════
         #  Render 3D Voxels
