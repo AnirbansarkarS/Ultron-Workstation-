@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ultron Workstation — Launcher</title>
+  <meta name="description"
+        content="Ultron Workstation — gesture-controlled 3D voxel engine launcher with 3D model import" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700;900&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet" />
+
+  <style>
+    /* ─── Reset & Tokens ─────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #060610;
+      --surface:   rgba(255,255,255,.04);
+      --border:    rgba(255,255,255,.08);
+      --glow-a:    #7c3aed;
+      --glow-b:    #06b6d4;
+      --accent:    #a78bfa;
+      --green:     #34d399;
+      --red:       #f87171;
+      --amber:     #fbbf24;
+      --text:      #e2e8f0;
+      --muted:     #64748b;
+      --font:      'Outfit', sans-serif;
+      --mono:      'JetBrains Mono', monospace;
+      --radius:    16px;
+      --radius-sm: 8px;
+      --shadow:    0 8px 32px rgba(0,0,0,.6);
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      overflow-x: hidden;
+    }
+
+    /* ─── Animated background ───────────────────────────────────── */
+    body::before {
+      content: '';
+      position: fixed; inset: 0; z-index: -1;
+      background:
+        radial-gradient(ellipse 80% 60% at 20% 10%, rgba(124,58,237,.18) 0%, transparent 60%),
+        radial-gradient(ellipse 60% 50% at 80% 90%, rgba(6,182,212,.14) 0%, transparent 60%),
+        radial-gradient(ellipse 100% 80% at 50% 50%, rgba(6,6,16,1) 0%, transparent 100%);
+      animation: bgPulse 8s ease-in-out infinite alternate;
+    }
+    @keyframes bgPulse {
+      from { opacity: 1; }
+      to   { opacity: .85; }
+    }
+
+    /* floating orbs */
+    .orb {
+      position: fixed; border-radius: 50%; filter: blur(90px); z-index: -1;
+      animation: orbFloat 12s ease-in-out infinite alternate;
+    }
+    .orb-1 { width:500px; height:500px; top:-120px; left:-100px; background:rgba(124,58,237,.12); }
+    .orb-2 { width:400px; height:400px; bottom:-80px; right:-80px; background:rgba(6,182,212,.10); animation-delay:-6s; }
+    @keyframes orbFloat {
+      from { transform: translate(0,0) scale(1); }
+      to   { transform: translate(40px,30px) scale(1.08); }
+    }
+
+    /* ─── Layout ─────────────────────────────────────────────────── */
+    .page {
+      min-height: 100vh;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      padding: 24px;
+      gap: 0;
+    }
+
+    /* ─── Header ─────────────────────────────────────────────────── */
+    header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 4px 24px;
+    }
+    .logo {
+      display: flex; align-items: center; gap: 14px;
+    }
+    .logo-icon {
+      width: 44px; height: 44px; border-radius: 12px;
+      background: linear-gradient(135deg, var(--glow-a), var(--glow-b));
+      display: grid; place-items: center;
+      font-size: 22px;
+      box-shadow: 0 0 20px rgba(124,58,237,.5);
+      animation: iconPulse 3s ease-in-out infinite;
+    }
+    @keyframes iconPulse {
+      0%,100% { box-shadow: 0 0 20px rgba(124,58,237,.5); }
+      50%      { box-shadow: 0 0 40px rgba(124,58,237,.9), 0 0 60px rgba(6,182,212,.4); }
+    }
+    .logo-text {
+      font-size: 1.4rem; font-weight: 900; letter-spacing: .04em;
+      background: linear-gradient(90deg, #c4b5fd, #67e8f9);
+      -webkit-background-clip: text; background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .logo-sub { font-size: .72rem; color: var(--muted); letter-spacing: .1em; text-transform: uppercase; }
+
+    /* Status pill in header */
+    #statusPill {
+      display: flex; align-items: center; gap: 8px;
+      padding: 6px 14px; border-radius: 100px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      font-size: .78rem; font-weight: 600;
+      backdrop-filter: blur(12px);
+      transition: all .3s;
+    }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--muted);
+      transition: background .3s;
+    }
+    .dot.alive { background: var(--green); box-shadow: 0 0 8px var(--green); animation: blink 1.6s ease-in-out infinite; }
+    .dot.dead  { background: var(--red); }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+    /* ─── Main content ───────────────────────────────────────────── */
+    main {
+      display: flex; flex-direction: column; align-items: center;
+      justify-content: center; gap: 32px;
+      padding: 20px 0 40px;
+    }
+
+    /* ─── Hero title ─────────────────────────────────────────────── */
+    .hero {
+      text-align: center; max-width: 640px;
+    }
+    .hero h1 {
+      font-size: clamp(2.2rem, 5vw, 3.6rem);
+      font-weight: 900; line-height: 1.1;
+      background: linear-gradient(135deg, #e2e8f0 30%, #a78bfa 70%, #67e8f9 100%);
+      -webkit-background-clip: text; background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 14px;
+    }
+    .hero p {
+      color: var(--muted); font-size: 1rem; line-height: 1.7;
+    }
+
+    /* ─── Card grid ──────────────────────────────────────────────── */
+    .card-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 20px;
+      width: 100%; max-width: 900px;
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 28px;
+      backdrop-filter: blur(16px);
+      transition: transform .25s, border-color .25s, box-shadow .25s;
+    }
+    .card:hover {
+      transform: translateY(-4px);
+      border-color: rgba(167,139,250,.3);
+      box-shadow: 0 20px 60px rgba(124,58,237,.15);
+    }
+
+    .card-icon { font-size: 2rem; margin-bottom: 14px; }
+    .card h2 { font-size: 1.15rem; font-weight: 700; margin-bottom: 8px; }
+    .card p  { font-size: .85rem; color: var(--muted); line-height: 1.6; margin-bottom: 20px; }
+
+    /* ─── Buttons ─────────────────────────────────────────────────── */
+    .btn {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 11px 22px; border-radius: var(--radius-sm);
+      font-family: var(--font); font-size: .9rem; font-weight: 600;
+      cursor: pointer; border: none; transition: all .2s;
+      text-decoration: none;
+    }
+    .btn:active { transform: scale(.97); }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--glow-a), #5b21b6);
+      color: #fff;
+      box-shadow: 0 4px 20px rgba(124,58,237,.4);
+    }
+    .btn-primary:hover { box-shadow: 0 8px 30px rgba(124,58,237,.6); filter: brightness(1.1); }
+
+    .btn-secondary {
+      background: rgba(6,182,212,.12);
+      color: #67e8f9;
+      border: 1px solid rgba(6,182,212,.25);
+    }
+    .btn-secondary:hover { background: rgba(6,182,212,.22); }
+
+    .btn-danger {
+      background: rgba(248,113,113,.12);
+      color: var(--red);
+      border: 1px solid rgba(248,113,113,.25);
+    }
+    .btn-danger:hover { background: rgba(248,113,113,.22); }
+
+    .btn:disabled { opacity: .45; cursor: not-allowed; pointer-events: none; }
+
+    /* ─── Model path row ─────────────────────────────────────────── */
+    .model-row {
+      display: flex; gap: 10px; margin-bottom: 16px;
+    }
+    .model-row input[type="text"] {
+      flex: 1;
+      background: rgba(255,255,255,.05);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 10px 14px;
+      color: var(--text);
+      font-family: var(--mono); font-size: .8rem;
+      outline: none;
+      transition: border-color .2s;
+    }
+    .model-row input:focus { border-color: rgba(167,139,250,.5); }
+    .model-row input::placeholder { color: var(--muted); }
+
+    /* ─── Models list ────────────────────────────────────────────── */
+    #modelsList {
+      list-style: none;
+      display: flex; flex-direction: column; gap: 6px;
+      max-height: 220px; overflow-y: auto;
+    }
+    #modelsList::-webkit-scrollbar { width: 4px; }
+    #modelsList::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+    .model-item {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 8px 12px;
+      background: rgba(255,255,255,.03);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      transition: border-color .2s, background .2s;
+    }
+    .model-item:hover { border-color: rgba(6,182,212,.3); background: rgba(6,182,212,.06); }
+    .model-item.selected { border-color: rgba(167,139,250,.6); background: rgba(124,58,237,.08); }
+
+    .model-item-name { font-family: var(--mono); font-size: .78rem; }
+    .model-item-size { font-size: .7rem; color: var(--muted); }
+
+    .empty-hint {
+      text-align: center; color: var(--muted); font-size: .82rem; padding: 20px;
+    }
+
+    /* ─── Log card ───────────────────────────────────────────────── */
+    #logCard {
+      max-width: 900px; width: 100%;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px 24px;
+      backdrop-filter: blur(12px);
+    }
+    #logCard h3 { font-size: .85rem; color: var(--muted); margin-bottom: 12px; letter-spacing: .08em; text-transform: uppercase; }
+    #logBox {
+      font-family: var(--mono); font-size: .75rem; color: #94a3b8;
+      max-height: 120px; overflow-y: auto;
+      display: flex; flex-direction: column; gap: 2px;
+    }
+    #logBox::-webkit-scrollbar { width: 4px; }
+    #logBox::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+    .log-line { padding: 2px 0; }
+    .log-ok   { color: var(--green); }
+    .log-err  { color: var(--red); }
+    .log-info { color: #67e8f9; }
+
+    /* ─── Gesture guide ──────────────────────────────────────────── */
+    .gesture-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 10px;
+    }
+    .gesture-item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 14px;
+      background: rgba(255,255,255,.03);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+    }
+    .gesture-emoji { font-size: 1.4rem; }
+    .gesture-info { font-size: .78rem; line-height: 1.4; }
+    .gesture-name { font-weight: 600; }
+    .gesture-desc { color: var(--muted); }
+
+    /* ─── Key chips ──────────────────────────────────────────────── */
+    .key-chips {
+      display: flex; flex-wrap: wrap; gap: 8px;
+    }
+    kbd {
+      background: rgba(255,255,255,.08);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 4px 10px;
+      font-family: var(--mono); font-size: .75rem;
+      color: var(--accent);
+      display: inline-flex; align-items: center; gap: 6px;
+    }
+
+    /* ─── Footer ─────────────────────────────────────────────────── */
+    footer {
+      text-align: center; padding: 24px 0 8px;
+      font-size: .72rem; color: var(--muted);
+    }
+    footer a { color: var(--accent); text-decoration: none; }
+    footer a:hover { text-decoration: underline; }
+
+    /* ─── Toast ──────────────────────────────────────────────────── */
+    #toast {
+      position: fixed; bottom: 32px; right: 32px;
+      background: rgba(15,15,30,.95);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 12px 20px;
+      font-size: .85rem;
+      backdrop-filter: blur(16px);
+      opacity: 0; transform: translateY(12px);
+      transition: opacity .3s, transform .3s;
+      pointer-events: none;
+      z-index: 999;
+    }
+    #toast.show { opacity: 1; transform: translateY(0); }
+
+    /* ─── Responsive ─────────────────────────────────────────────── */
+    @media (max-width: 600px) {
+      .card-grid { grid-template-columns: 1fr; }
+      .model-row { flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+<div class="orb orb-1"></div>
+<div class="orb orb-2"></div>
+
+<div class="page">
+
+  <!-- ── Header ──────────────────────────────────────────────────── -->
+  <header>
+    <div class="logo">
+      <div class="logo-icon">🤖</div>
+      <div>
+        <div class="logo-text">ULTRON</div>
+        <div class="logo-sub">Workstation v5</div>
+      </div>
+    </div>
+
+    <div id="statusPill">
+      <div class="dot dead" id="statusDot"></div>
+      <span id="statusText">Checking…</span>
+    </div>
+  </header>
+
+  <!-- ── Main ────────────────────────────────────────────────────── -->
+  <main>
+
+    <!-- Hero -->
+    <div class="hero">
+      <h1>Gesture-Controlled<br/>3D Workstation</h1>
+      <p>Touchless hand tracking · Voxel sculpting · 3D model import<br/>
+         Everything controlled with your bare hands via computer vision.</p>
+    </div>
+
+    <!-- Card grid -->
+    <div class="card-grid">
+
+      <!-- Launch card -->
+      <div class="card">
+        <div class="card-icon">🚀</div>
+        <h2>Launch Workspace</h2>
+        <p>Start the OpenCV hand-tracking session.
+           The window opens in fullscreen with your webcam feed.</p>
+        <div style="display:flex; gap:10px; flex-wrap:wrap;">
+          <button class="btn btn-primary" id="btnLaunch">▶ Launch</button>
+          <button class="btn btn-danger"  id="btnStop" style="display:none">■ Stop</button>
+        </div>
+      </div>
+
+      <!-- Model import card -->
+      <div class="card">
+        <div class="card-icon">🧊</div>
+        <h2>Import 3D Model</h2>
+        <p>Select a model from your <code>models/</code> folder or paste any
+           path below. Drop models into <code>models/</code> and click Refresh.</p>
+
+        <div class="model-row">
+          <input type="text" id="modelPath" placeholder="C:\path\to\model.obj or .glb …" />
+          <button class="btn btn-secondary" id="btnRefresh" title="Refresh model list">↻</button>
+        </div>
+
+        <ul id="modelsList">
+          <li class="empty-hint">Loading models…</li>
+        </ul>
+
+        <div style="margin-top:14px; display:flex; gap:10px; flex-wrap:wrap;">
+          <button class="btn btn-primary" id="btnLaunchModel">▶ Launch with Model</button>
+        </div>
+      </div>
+
+      <!-- Gesture guide card -->
+      <div class="card" style="grid-column: 1 / -1;">
+        <div class="card-icon">🖐️</div>
+        <h2>Gesture Guide</h2>
+        <p style="margin-bottom:16px;">Use hand gestures once the workspace is running.
+           Press <kbd>[M]</kbd> to switch between Voxel and Model control modes.</p>
+
+        <div class="gesture-grid">
+          <div class="gesture-item">
+            <div class="gesture-emoji">☝️</div>
+            <div class="gesture-info">
+              <div class="gesture-name">Pointer</div>
+              <div class="gesture-desc">Draw / place voxel</div>
+            </div>
+          </div>
+          <div class="gesture-item">
+            <div class="gesture-emoji">🤏</div>
+            <div class="gesture-info">
+              <div class="gesture-name">Pinch</div>
+              <div class="gesture-desc">Erase voxel / Grab model</div>
+            </div>
+          </div>
+          <div class="gesture-item">
+            <div class="gesture-emoji">✋</div>
+            <div class="gesture-info">
+              <div class="gesture-name">Open Palm</div>
+              <div class="gesture-desc">Rotate camera / Rotate model</div>
+            </div>
+          </div>
+          <div class="gesture-item">
+            <div class="gesture-emoji">✊</div>
+            <div class="gesture-info">
+              <div class="gesture-name">Fist</div>
+              <div class="gesture-desc">Hold / freeze</div>
+            </div>
+          </div>
+          <div class="gesture-item">
+            <div class="gesture-emoji">🖐️🖐️</div>
+            <div class="gesture-info">
+              <div class="gesture-name">Two Hands</div>
+              <div class="gesture-desc">Scale model / zoom</div>
+            </div>
+          </div>
+        </div>
+
+        <div style="margin-top:18px;">
+          <p style="font-size:.82rem; color:var(--muted); margin-bottom:10px;">Keyboard shortcuts (while workspace is running):</p>
+          <div class="key-chips">
+            <kbd>[M]</kbd> <span style="font-size:.8rem">Toggle VOXEL ↔ MODEL mode</span>
+            <kbd>[O]</kbd> <span style="font-size:.8rem">Open file picker</span>
+            <kbd>[R]</kbd> <span style="font-size:.8rem">Reset model transform</span>
+            <kbd>[ESC]</kbd> <span style="font-size:.8rem">Quit workspace</span>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /card-grid -->
+
+    <!-- Log -->
+    <div id="logCard">
+      <h3>📋 Activity Log</h3>
+      <div id="logBox">
+        <div class="log-line log-info">Launcher ready. Awaiting commands…</div>
+      </div>
+    </div>
+
+  </main>
+
+  <footer>
+    Ultron Workstation &nbsp;·&nbsp;
+    <a href="https://github.com/AnirbansarkarS/Ultron-Workstation-" target="_blank">GitHub</a>
+    &nbsp;·&nbsp; MIT License
+  </footer>
+</div><!-- /page -->
+
+<div id="toast"></div>
+
+<script>
+  // ── State ─────────────────────────────────────────────────────────
+  let isRunning  = false;
+  let selectedModel = null;
+
+  // ── Helpers ───────────────────────────────────────────────────────
+  function log(msg, type = '') {
+    const box = document.getElementById('logBox');
+    const el  = document.createElement('div');
+    el.className = 'log-line' + (type ? ` log-${type}` : '');
+    const ts = new Date().toLocaleTimeString();
+    el.textContent = `[${ts}] ${msg}`;
+    box.appendChild(el);
+    box.scrollTop = box.scrollHeight;
+  }
+
+  function toast(msg, ms = 3000) {
+    const el = document.getElementById('toast');
+    el.textContent = msg;
+    el.classList.add('show');
+    setTimeout(() => el.classList.remove('show'), ms);
+  }
+
+  function fmt(bytes) {
+    if (bytes < 1024)       return bytes + ' B';
+    if (bytes < 1048576)    return (bytes/1024).toFixed(1) + ' KB';
+    return (bytes/1048576).toFixed(1) + ' MB';
+  }
+
+  // ── Status polling ────────────────────────────────────────────────
+  async function pollStatus() {
+    try {
+      const r   = await fetch('/api/status');
+      const d   = await r.json();
+      const dot  = document.getElementById('statusDot');
+      const txt  = document.getElementById('statusText');
+      const stop = document.getElementById('btnStop');
+      const lnch = document.getElementById('btnLaunch');
+      const lnch2= document.getElementById('btnLaunchModel');
+
+      isRunning = d.running;
+      if (d.running) {
+        dot.className  = 'dot alive';
+        txt.textContent = `Running — PID ${d.pid}`;
+        stop.style.display = 'inline-flex';
+        lnch.disabled  = true;
+        lnch2.disabled = true;
+      } else {
+        dot.className  = 'dot dead';
+        txt.textContent = 'Stopped';
+        stop.style.display = 'none';
+        lnch.disabled  = false;
+        lnch2.disabled = false;
+      }
+    } catch (e) {
+      // Server not running or network error — ignore silently
+    }
+  }
+
+  // ── Model list ────────────────────────────────────────────────────
+  async function loadModels() {
+    const list = document.getElementById('modelsList');
+    try {
+      const r = await fetch('/api/models');
+      const models = await r.json();
+
+      list.innerHTML = '';
+      if (models.length === 0) {
+        list.innerHTML = '<li class="empty-hint">No models found in <code>models/</code> folder.<br/>Drop .obj, .stl, .glb files there and click ↻</li>';
+        return;
+      }
+
+      models.forEach(m => {
+        const li = document.createElement('li');
+        li.className = 'model-item';
+        li.innerHTML = `
+          <span class="model-item-name">📦 ${m.name}</span>
+          <span class="model-item-size">${fmt(m.size)}</span>`;
+        li.title = m.path;
+        li.addEventListener('click', () => {
+          document.querySelectorAll('.model-item').forEach(el => el.classList.remove('selected'));
+          li.classList.add('selected');
+          selectedModel = m.path;
+          document.getElementById('modelPath').value = m.path;
+          log(`Selected model: ${m.name}`, 'info');
+        });
+        list.appendChild(li);
+      });
+    } catch (e) {
+      list.innerHTML = '<li class="empty-hint">Failed to load models list.</li>';
+    }
+  }
+
+  // ── Launch ────────────────────────────────────────────────────────
+  async function launch(modelPath) {
+    const body = {};
+    if (modelPath) body.model_path = modelPath;
+
+    log(`Launching workspace${modelPath ? ` with model: ${modelPath}` : ''}…`, 'info');
+    try {
+      const r = await fetch('/api/launch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const d = await r.json();
+      if (d.ok) {
+        log(`✓ Workspace started — PID ${d.pid}`, 'ok');
+        toast('✅ Workspace launched!');
+      } else {
+        log(`✗ Launch failed: ${d.error}`, 'err');
+        toast(`❌ ${d.error}`);
+      }
+    } catch (e) {
+      log(`✗ Network error: ${e}`, 'err');
+    }
+    await pollStatus();
+  }
+
+  async function stop() {
+    log('Stopping workspace…', 'info');
+    try {
+      await fetch('/api/stop', { method: 'POST' });
+      log('Workspace stopped.', 'ok');
+      toast('Workspace stopped.');
+    } catch (e) { log(`Error: ${e}`, 'err'); }
+    await pollStatus();
+  }
+
+  // ── Event listeners ───────────────────────────────────────────────
+  document.getElementById('btnLaunch').addEventListener('click', () => launch(null));
+
+  document.getElementById('btnLaunchModel').addEventListener('click', () => {
+    const path = document.getElementById('modelPath').value.trim() || selectedModel;
+    if (!path) { toast('⚠️ Enter or select a model path first.'); return; }
+    launch(path);
+  });
+
+  document.getElementById('btnStop').addEventListener('click', stop);
+
+  document.getElementById('btnRefresh').addEventListener('click', () => {
+    loadModels();
+    toast('Model list refreshed.');
+  });
+
+  // modelPath typed → clear selection
+  document.getElementById('modelPath').addEventListener('input', () => {
+    selectedModel = null;
+    document.querySelectorAll('.model-item').forEach(el => el.classList.remove('selected'));
+  });
+
+  // ── Init ──────────────────────────────────────────────────────────
+  pollStatus();
+  loadModels();
+  setInterval(pollStatus, 3000);
+</script>
+</body>
+</html>
