@@ -2,4 +2,5 @@ opencv-python
 mediapipe
 pyyaml
 numpy
-
+trimesh
+pygltflib
