@@ -136,8 +136,6 @@ Ultron-Workstation-/
     └── voxel_projection_test.py # MVP rendering pipeline test suite
 ```
 
----
-
 ## ⚡ Installation & Setup
 
 ### Prerequisites
