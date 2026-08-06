@@ -63,12 +63,22 @@ def launch_workspace(model_path=None):
             cmd += ["--model", model_path]
 
         try:
+            # Use None for stdout/stderr so process inherits standard output and doesn't deadlock on pipe buffer filling up
             _process = subprocess.Popen(
-                cmd, cwd=ROOT_DIR,
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE
+                cmd, cwd=ROOT_DIR
             )
+            # Brief check to verify it didn't immediately crash
+            import time
+            time.sleep(0.6)
+            ret = _process.poll()
+            if ret is not None:
+                err_code = ret
+                _process = None
+                return {"ok": False, "error": f"Workspace process exited immediately with code {err_code}"}
+
             return {"ok": True, "pid": _process.pid}
         except Exception as e:
+            _process = None
             return {"ok": False, "error": str(e)}
 
 
@@ -222,10 +232,10 @@ def main():
     server = HTTPServer(("localhost", args.port), Handler)
     url    = f"http://localhost:{args.port}"
 
-    print(f"╔══════════════════════════════════════════╗")
-    print(f"║  Ultron Workstation Launcher Server      ║")
-    print(f"║  {url:<42}║")
-    print(f"╚══════════════════════════════════════════╝")
+    print(f"+------------------------------------------+")
+    print(f"|  Ultron Workstation Launcher Server      |")
+    print(f"|  {url:<40} |")
+    print(f"+------------------------------------------+")
     print(f"  Models folder : {MODELS_DIR}")
     print(f"  Press Ctrl+C to stop\n")
 

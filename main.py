@@ -281,7 +281,7 @@ def main():
     model_obj, model_controller = try_load_model(args.model)
 
     # ── Workspace mode: "VOXEL" | "MODEL" ────────────────────────────
-    workspace_mode = "VOXEL"  # Start in voxel mode
+    workspace_mode = "MODEL" if model_obj is not None else "VOXEL"
 
     window_name = "Ultron Workstation"
     cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)

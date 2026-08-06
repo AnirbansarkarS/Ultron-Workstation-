@@ -2,6 +2,26 @@ import time
 import cv2
 import numpy as np
 import threading
+import sys
+import types
+
+# Workaround for broken TensorFlow installation on Python 3.13 causing MediaPipe import failure
+if "tensorflow" not in sys.modules:
+    try:
+        import tensorflow
+    except Exception:
+        tf = types.ModuleType("tensorflow")
+        doc = types.ModuleType("doc_controls")
+        doc.do_not_generate_docs = lambda x: x
+        doc.for_subclass_implementers = lambda x: x
+        tf.tools = types.ModuleType("tools")
+        tf.tools.docs = types.ModuleType("docs")
+        tf.tools.docs.doc_controls = doc
+        sys.modules["tensorflow"] = tf
+        sys.modules["tensorflow.tools"] = tf.tools
+        sys.modules["tensorflow.tools.docs"] = tf.tools.docs
+        sys.modules["tensorflow.tools.docs.doc_controls"] = doc
+
 import mediapipe as mp
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
